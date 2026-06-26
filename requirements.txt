@@ -1,0 +1,5 @@
+yfinance==0.2.54
+supabase==2.10.0
+python-dotenv==1.0.1
+feedparser==6.0.11
+pandas==2.2.3

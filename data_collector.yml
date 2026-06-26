@@ -1,0 +1,31 @@
+name: LCDL — Data Collector
+
+on:
+  schedule:
+    # Toutes les 15 min, du lundi au vendredi
+    # Marché US : 14h30 → 21h00 UTC (9h30 → 16h00 EST)
+    - cron: "*/15 14-21 * * 1-5"
+  workflow_dispatch: # Permet de lancer manuellement depuis GitHub
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+
+      - name: Lancer le Data Collector
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python data_collector.py
