@@ -11,7 +11,7 @@ import {
   Bell, Settings, ChevronRight, ArrowUpRight, Activity,
   Clock, Database, Target, Eye, RefreshCw,
 } from "lucide-react";
-import { useMarketData } from "./hooks/useMarketData";
+import { useMarketData } from "../hooks/useMarketData";
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 const VIOLET = "#7c5df2";
