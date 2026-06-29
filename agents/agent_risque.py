@@ -33,7 +33,7 @@ Bloquer si confidence < 40 ou risk_level élevé avec news très négatives."""
 class AgentRisque:
     def __init__(self):
         self.model = genai.GenerativeModel(
-            model_name="gemini-2.0-flash",
+            model_name="gemini-3.1-flash-lite",
             system_instruction=SYSTEM_PROMPT,
         )
 
