@@ -1,6 +1,5 @@
 """
-News Collector — scrape des flux RSS financiers gratuits.
-Pas de clé API requise.
+News Collector crypto — RSS spécialisés crypto, sans clé API
 """
 
 import logging
@@ -10,20 +9,23 @@ import feedparser
 
 log = logging.getLogger(__name__)
 
-# Flux RSS financiers gratuits
+# Flux RSS crypto gratuits
 RSS_FEEDS = [
-    # Yahoo Finance (par ticker — insérer le ticker dans l'URL)
-    "https://finance.yahoo.com/rss/headline?s={ticker}",
-    # Seeking Alpha (public)
-    "https://seekingalpha.com/api/sa/combined/{ticker}.xml",
+    "https://cointelegraph.com/rss",
+    "https://coindesk.com/arc/outboundfeeds/rss/",
+    "https://decrypt.co/feed",
+    "https://www.theblock.co/rss.xml",
+    "https://cryptonews.com/news/feed/",
 ]
 
-# Flux généraux marchés (pas liés à un ticker spécifique)
-RSS_GENERAL = [
-    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US",
-    "https://www.cnbc.com/id/100003114/device/rss/rss.html",  # CNBC Markets
-    "https://feeds.bloomberg.com/markets/news.rss",            # Bloomberg Markets
-]
+# Mots clés par ticker pour filtrer les articles pertinents
+TICKER_KEYWORDS = {
+    "BTC":  ["bitcoin", "btc"],
+    "ETH":  ["ethereum", "eth", "ether"],
+    "SOL":  ["solana", "sol"],
+    "BNB":  ["binance", "bnb"],
+    "XRP":  ["xrp", "ripple"],
+}
 
 
 class NewsCollector:
@@ -31,34 +33,41 @@ class NewsCollector:
         self.tickers = tickers
 
     def fetch_all(self) -> list[dict]:
-        """Récupère les news pour tous les tickers + news générales."""
-        articles = []
+        """Récupère et trie les news par ticker."""
+        all_articles = []
 
-        # News par ticker
-        for ticker in self.tickers:
-            for feed_url in RSS_FEEDS:
-                url = feed_url.format(ticker=ticker)
-                articles.extend(self._parse_feed(url, ticker=ticker))
+        for url in RSS_FEEDS:
+            articles = self._parse_feed(url)
+            all_articles.extend(articles)
 
-        # News générales marché
-        for url in RSS_GENERAL:
-            articles.extend(self._parse_feed(url, ticker=None))
-
-        # Déduplication par hash du titre
+        # Déduplication par hash
         seen = set()
         unique = []
-        for a in articles:
+        for a in all_articles:
             if a["hash"] not in seen:
                 seen.add(a["hash"])
                 unique.append(a)
 
-        return unique
+        # Taguer chaque article avec le ticker concerné
+        tagged = []
+        for article in unique:
+            text = (article["title"] + " " + article["summary"]).lower()
+            matched = False
+            for ticker, keywords in TICKER_KEYWORDS.items():
+                if any(kw in text for kw in keywords):
+                    tagged.append({**article, "ticker": ticker})
+                    matched = True
+            if not matched:
+                # News générale marché crypto
+                tagged.append({**article, "ticker": None})
 
-    def _parse_feed(self, url: str, ticker: str | None) -> list[dict]:
+        return tagged
+
+    def _parse_feed(self, url: str) -> list[dict]:
         results = []
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:10]:  # Max 10 articles par feed
+            for entry in feed.entries[:15]:
                 title   = entry.get("title", "").strip()
                 summary = entry.get("summary", "").strip()
                 link    = entry.get("link", "")
@@ -66,10 +75,8 @@ class NewsCollector:
                 if not title:
                     continue
 
-                # Hash pour déduplication
                 h = hashlib.md5(title.encode()).hexdigest()
 
-                # Date de publication
                 published = datetime.now(timezone.utc).isoformat()
                 if hasattr(entry, "published_parsed") and entry.published_parsed:
                     try:
@@ -78,16 +85,16 @@ class NewsCollector:
                         pass
 
                 results.append({
-                    "ticker":      ticker,        # None = news générale marché
-                    "title":       title,
-                    "summary":     summary[:500], # Limiter la taille
-                    "url":         link,
-                    "source":      feed.feed.get("title", "unknown"),
-                    "hash":        h,
-                    "impact_score": None,          # Sera rempli par l'agent IA
-                    "sentiment":   None,           # Sera rempli par l'agent IA
+                    "ticker":       None,
+                    "title":        title,
+                    "summary":      summary[:500],
+                    "url":          link,
+                    "source":       feed.feed.get("title", "unknown"),
+                    "hash":         h,
+                    "impact_score": None,
+                    "sentiment":    None,
                     "published_at": published,
-                    "fetched_at":  datetime.now(timezone.utc).isoformat(),
+                    "fetched_at":   datetime.now(timezone.utc).isoformat(),
                 })
 
         except Exception as e:
