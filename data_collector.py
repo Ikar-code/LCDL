@@ -1,5 +1,6 @@
 """
-LCDL — Data Collector Crypto (CoinGecko)
+LCDL — Data Collector Crypto optimisé
+1 requête pour tous les prix + historiques espacés de 20s
 """
 
 import os
@@ -19,7 +20,6 @@ log = logging.getLogger(__name__)
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
-
 TICKERS = ["BTC", "ETH", "SOL", "BNB", "XRP"]
 
 
@@ -30,14 +30,12 @@ def run():
 
     log.info(f"Collecte crypto démarrée — {len(TICKERS)} tickers")
 
-    for ticker in TICKERS:
-        try:
-            price_data = price_col.fetch_latest(ticker)
-            if not price_data:
-                log.warning(f"{ticker}: aucun prix récupéré")
-                time.sleep(2)
-                continue
+    # 1. Tous les prix en une seule requête
+    all_prices = price_col.fetch_all_latest()
+    log.info(f"Prix récupérés : {list(all_prices.keys())}")
 
+    for ticker, price_data in all_prices.items():
+        try:
             supabase.table("prices").insert({
                 "ticker":     ticker,
                 "open":       price_data["open"],
@@ -48,10 +46,13 @@ def run():
                 "change_pct": price_data["change_pct"],
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
             }).execute()
-
             log.info(f"{ticker}: {price_data['close']} USDT ({price_data['change_pct']:+.2f}%)")
+        except Exception as e:
+            log.error(f"{ticker} insert prix: {e}")
 
-            # Historique + indicateurs
+    # 2. Historique + indicateurs — espacé de 20s pour respecter le rate limit
+    for ticker in TICKERS:
+        try:
             history = price_col.fetch_history(ticker, days=60)
             if history is not None:
                 indicators = compute_indicators(history)
@@ -66,18 +67,17 @@ def run():
                     "updated_at":  datetime.now(timezone.utc).isoformat(),
                 }, on_conflict="ticker").execute()
                 log.info(f"{ticker}: RSI={indicators['rsi']}, trend={indicators['trend']}")
-
+            else:
+                log.warning(f"{ticker}: historique insuffisant")
         except Exception as e:
-            log.error(f"{ticker}: {e}")
+            log.error(f"{ticker} historique: {e}")
 
-        # CoinGecko free tier : max ~10 req/min, on attend 8s entre chaque ticker
-        time.sleep(15)
+        time.sleep(20)  # 20s entre chaque historique = ~3 req/min
 
-    # News — déduplique dans le batch avant d'envoyer
+    # 3. News
     try:
         articles = news_col.fetch_all()
         if articles:
-            # Déduplique par hash dans le batch (évite l'erreur ON CONFLICT)
             seen = set()
             unique = []
             for a in articles:
@@ -85,15 +85,13 @@ def run():
                     seen.add(a["hash"])
                     unique.append(a)
 
-            # Envoyer par petits groupes de 20
             for i in range(0, len(unique), 20):
-                batch = unique[i:i+20]
                 try:
-                    supabase.table("news").upsert(batch, on_conflict="hash").execute()
+                    supabase.table("news").upsert(unique[i:i+20], on_conflict="hash").execute()
                 except Exception as e:
                     log.warning(f"Batch news {i}: {e}")
 
-            log.info(f"News: {len(unique)} articles insérés/mis à jour")
+            log.info(f"News: {len(unique)} articles")
     except Exception as e:
         log.error(f"News: {e}")
 
