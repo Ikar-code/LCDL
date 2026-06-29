@@ -170,7 +170,7 @@ export function useMarketData() {
   useEffect(() => {
     fetchAll();
     // Rafraîchit toutes les 2 minutes
-    const interval = setInterval(fetchAll, 2 * 60 * 1000);
+    const interval = setInterval(fetchAll, 30 * 1000);
     return () => clearInterval(interval);
   }, [fetchAll]);
 
