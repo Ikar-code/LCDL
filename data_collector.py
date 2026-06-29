@@ -1,6 +1,5 @@
 """
-LCDL — Data Collector Crypto
-Récupère prix BTC/ETH/SOL/BNB/XRP + indicateurs + news
+LCDL — Data Collector Crypto (CoinGecko)
 """
 
 import os
@@ -33,10 +32,10 @@ def run():
 
     for ticker in TICKERS:
         try:
-            # 1. Prix actuel
             price_data = price_col.fetch_latest(ticker)
             if not price_data:
                 log.warning(f"{ticker}: aucun prix récupéré")
+                time.sleep(2)
                 continue
 
             supabase.table("prices").insert({
@@ -52,9 +51,9 @@ def run():
 
             log.info(f"{ticker}: {price_data['close']} USDT ({price_data['change_pct']:+.2f}%)")
 
-            # 2. Historique + indicateurs
+            # Historique + indicateurs
             history = price_col.fetch_history(ticker, days=60)
-            if history is not None and len(history) >= 26:
+            if history is not None:
                 indicators = compute_indicators(history)
                 supabase.table("indicators").upsert({
                     "ticker":      ticker,
@@ -66,21 +65,35 @@ def run():
                     "trend":       indicators["trend"],
                     "updated_at":  datetime.now(timezone.utc).isoformat(),
                 }, on_conflict="ticker").execute()
-                log.info(f"{ticker}: indicateurs calculés — RSI={indicators['rsi']}, trend={indicators['trend']}")
-            else:
-                log.warning(f"{ticker}: historique insuffisant pour les indicateurs")
+                log.info(f"{ticker}: RSI={indicators['rsi']}, trend={indicators['trend']}")
 
         except Exception as e:
             log.error(f"{ticker}: {e}")
 
-        time.sleep(0.5)  # Binance rate limit
+        # CoinGecko free tier : max ~10 req/min, on attend 8s entre chaque ticker
+        time.sleep(8)
 
-    # 3. News crypto
+    # News — déduplique dans le batch avant d'envoyer
     try:
         articles = news_col.fetch_all()
         if articles:
-            supabase.table("news").upsert(articles, on_conflict="hash").execute()
-            log.info(f"News: {len(articles)} articles insérés/mis à jour")
+            # Déduplique par hash dans le batch (évite l'erreur ON CONFLICT)
+            seen = set()
+            unique = []
+            for a in articles:
+                if a["hash"] not in seen:
+                    seen.add(a["hash"])
+                    unique.append(a)
+
+            # Envoyer par petits groupes de 20
+            for i in range(0, len(unique), 20):
+                batch = unique[i:i+20]
+                try:
+                    supabase.table("news").upsert(batch, on_conflict="hash").execute()
+                except Exception as e:
+                    log.warning(f"Batch news {i}: {e}")
+
+            log.info(f"News: {len(unique)} articles insérés/mis à jour")
     except Exception as e:
         log.error(f"News: {e}")
 
