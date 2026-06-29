@@ -35,7 +35,7 @@ En cas de doute préférer HOLD."""
 class AgentDecision:
     def __init__(self):
         self.model = genai.GenerativeModel(
-            model_name="gemini-2.0-flash",
+            model_name="gemini-3.1-flash-lite",
             system_instruction=SYSTEM_PROMPT,
         )
 
