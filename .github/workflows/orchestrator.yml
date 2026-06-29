@@ -1,0 +1,31 @@
+name: LCDL — Orchestrateur IA
+
+on:
+  schedule:
+    # 30 min après le data collector (même plage horaire marché US)
+    - cron: "*/30 14-21 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  orchestrate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt
+
+      - name: Lancer l'orchestrateur IA
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python orchestrator.py
