@@ -1,6 +1,7 @@
 """
-Price Collector — CoinGecko API publique (sans clé, gratuit)
-Pas de restriction géographique contrairement à Binance
+Price Collector — CoinGecko optimisé
+- Une seule requête pour tous les prix (évite le rate limit)
+- Requêtes historique espacées
 """
 
 import logging
@@ -13,7 +14,6 @@ log = logging.getLogger(__name__)
 
 COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 
-# Mapping ticker → ID CoinGecko
 COINGECKO_IDS = {
     "BTC": "bitcoin",
     "ETH": "ethereum",
@@ -22,47 +22,58 @@ COINGECKO_IDS = {
     "XRP": "ripple",
 }
 
+# Inverse : id → ticker
+ID_TO_TICKER = {v: k for k, v in COINGECKO_IDS.items()}
+
 
 class PriceCollector:
     def __init__(self, tickers: list[str]):
         self.tickers = tickers
 
-    def fetch_latest(self, ticker: str) -> dict | None:
-        cg_id = COINGECKO_IDS.get(ticker)
-        if not cg_id:
-            log.error(f"ID CoinGecko inconnu : {ticker}")
-            return None
-
+    def fetch_all_latest(self) -> dict[str, dict]:
+        """
+        Récupère tous les prix en UNE seule requête.
+        Retourne un dict { "BTC": {...}, "ETH": {...}, ... }
+        """
+        ids = ",".join(COINGECKO_IDS[t] for t in self.tickers)
         try:
-            r = requests.get(f"{COINGECKO_BASE}/coins/{cg_id}", params={
-                "localization": "false",
-                "tickers":      "false",
-                "community_data": "false",
-                "developer_data": "false",
+            r = requests.get(f"{COINGECKO_BASE}/coins/markets", params={
+                "vs_currency":        "usd",
+                "ids":                ids,
+                "order":              "market_cap_desc",
+                "sparkline":          "false",
+                "price_change_percentage": "24h",
             }, timeout=15)
             r.raise_for_status()
-            d = r.json()
+            data = r.json()
 
-            md = d["market_data"]
-            close      = float(md["current_price"]["usd"])
-            open_24h   = float(md["price_change_24h"]) + close  # approximation open
-            high       = float(md["high_24h"]["usd"])
-            low        = float(md["low_24h"]["usd"])
-            volume     = float(md["total_volume"]["usd"])
-            change_pct = float(md["price_change_percentage_24h"])
+            result = {}
+            for coin in data:
+                ticker = ID_TO_TICKER.get(coin["id"])
+                if not ticker:
+                    continue
+                close      = float(coin["current_price"])
+                change_pct = float(coin.get("price_change_percentage_24h") or 0)
+                open_24h   = close / (1 + change_pct / 100) if change_pct != -100 else close
 
-            return {
-                "open":       round(open_24h, 6),
-                "high":       round(high, 6),
-                "low":        round(low, 6),
-                "close":      round(close, 6),
-                "volume":     int(volume),
-                "change_pct": round(change_pct, 4),
-            }
+                result[ticker] = {
+                    "open":       round(open_24h, 6),
+                    "high":       round(float(coin.get("high_24h") or close), 6),
+                    "low":        round(float(coin.get("low_24h") or close), 6),
+                    "close":      round(close, 6),
+                    "volume":     int(coin.get("total_volume") or 0),
+                    "change_pct": round(change_pct, 4),
+                }
+            return result
 
         except Exception as e:
-            log.error(f"fetch_latest({ticker}): {e}")
-            return None
+            log.error(f"fetch_all_latest: {e}")
+            return {}
+
+    def fetch_latest(self, ticker: str) -> dict | None:
+        """Compatibilité avec l'interface existante."""
+        all_prices = self.fetch_all_latest()
+        return all_prices.get(ticker)
 
     def fetch_history(self, ticker: str, days: int = 60) -> pd.DataFrame | None:
         cg_id = COINGECKO_IDS.get(ticker)
@@ -87,7 +98,7 @@ class PriceCollector:
                 rows.append({
                     "Date":   datetime.fromtimestamp(ts / 1000, tz=timezone.utc),
                     "Open":   price,
-                    "High":   price * 1.005,  # approximation
+                    "High":   price * 1.005,
                     "Low":    price * 0.995,
                     "Close":  price,
                     "Volume": vol,
