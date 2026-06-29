@@ -1,12 +1,18 @@
 """
-Price Collector — utilise yfinance (Yahoo Finance, gratuit, sans clé API)
+Price Collector — Alpha Vantage (gratuit, 25 req/jour)
+Clé API gratuite sur : https://www.alphavantage.co/support/#api-key
 """
 
+import os
 import logging
-import yfinance as yf
+import requests
 import pandas as pd
+from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
+
+AV_BASE = "https://www.alphavantage.co/query"
+AV_KEY  = os.environ.get("ALPHAVANTAGE_KEY", "demo")
 
 
 class PriceCollector:
@@ -14,27 +20,34 @@ class PriceCollector:
         self.tickers = tickers
 
     def fetch_latest(self, ticker: str) -> dict | None:
-        """Récupère le dernier prix + variation du jour."""
+        """Récupère le dernier prix via GLOBAL_QUOTE."""
         try:
-            stock = yf.Ticker(ticker)
-            info  = stock.fast_info
+            r = requests.get(AV_BASE, params={
+                "function": "GLOBAL_QUOTE",
+                "symbol":   ticker,
+                "apikey":   AV_KEY,
+            }, timeout=10)
+            r.raise_for_status()
+            data  = r.json()
+            quote = data.get("Global Quote", {})
 
-            close       = round(float(info.last_price), 4)
-            prev_close  = round(float(info.previous_close), 4)
-            change_pct  = round(((close - prev_close) / prev_close) * 100, 4)
-
-            # Dernière bougie du jour
-            hist = stock.history(period="1d", interval="1m")
-            if hist.empty:
+            if not quote or not quote.get("05. price"):
+                log.warning(f"{ticker}: réponse vide Alpha Vantage")
                 return None
 
-            last = hist.iloc[-1]
+            close      = round(float(quote["05. price"]), 4)
+            open_      = round(float(quote["02. open"]), 4)
+            high       = round(float(quote["03. high"]), 4)
+            low        = round(float(quote["04. low"]), 4)
+            volume     = int(quote["06. volume"])
+            change_pct = round(float(quote["10. change percent"].replace("%", "")), 4)
+
             return {
-                "open":       round(float(last["Open"]), 4),
-                "high":       round(float(last["High"]), 4),
-                "low":        round(float(last["Low"]),  4),
+                "open":       open_,
+                "high":       high,
+                "low":        low,
                 "close":      close,
-                "volume":     int(last["Volume"]),
+                "volume":     volume,
                 "change_pct": change_pct,
             }
 
@@ -43,13 +56,36 @@ class PriceCollector:
             return None
 
     def fetch_history(self, ticker: str, days: int = 60) -> pd.DataFrame | None:
-        """Récupère l'historique journalier pour calculer les indicateurs."""
+        """Récupère l'historique journalier pour les indicateurs."""
         try:
-            stock = yf.Ticker(ticker)
-            hist  = stock.history(period=f"{days}d", interval="1d")
-            if hist.empty:
+            r = requests.get(AV_BASE, params={
+                "function":   "TIME_SERIES_DAILY",
+                "symbol":     ticker,
+                "outputsize": "compact",  # 100 derniers jours
+                "apikey":     AV_KEY,
+            }, timeout=15)
+            r.raise_for_status()
+            data   = r.json()
+            series = data.get("Time Series (Daily)", {})
+
+            if not series:
+                log.warning(f"{ticker}: historique vide")
                 return None
-            return hist
+
+            rows = []
+            for date_str, vals in sorted(series.items())[-days:]:
+                rows.append({
+                    "Date":   datetime.strptime(date_str, "%Y-%m-%d"),
+                    "Open":   float(vals["1. open"]),
+                    "High":   float(vals["2. high"]),
+                    "Low":    float(vals["3. low"]),
+                    "Close":  float(vals["4. close"]),
+                    "Volume": int(vals["5. volume"]),
+                })
+
+            df = pd.DataFrame(rows).set_index("Date")
+            return df
+
         except Exception as e:
             log.error(f"fetch_history({ticker}): {e}")
             return None
