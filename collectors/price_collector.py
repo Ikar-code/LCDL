@@ -1,24 +1,25 @@
 """
-Price Collector — Binance API publique (sans clé API)
-Récupère les prix crypto en temps réel + historique pour les indicateurs
+Price Collector — CoinGecko API publique (sans clé, gratuit)
+Pas de restriction géographique contrairement à Binance
 """
 
 import logging
 import requests
 import pandas as pd
 from datetime import datetime, timezone
+import time
 
 log = logging.getLogger(__name__)
 
-BINANCE_BASE = "https://api.binance.com/api/v3"
+COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 
-# Paires crypto à suivre (USDT)
-SYMBOLS = {
-    "BTC":  "BTCUSDT",
-    "ETH":  "ETHUSDT",
-    "SOL":  "SOLUSDT",
-    "BNB":  "BNBUSDT",
-    "XRP":  "XRPUSDT",
+# Mapping ticker → ID CoinGecko
+COINGECKO_IDS = {
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "SOL": "solana",
+    "BNB": "binancecoin",
+    "XRP": "ripple",
 }
 
 
@@ -27,31 +28,36 @@ class PriceCollector:
         self.tickers = tickers
 
     def fetch_latest(self, ticker: str) -> dict | None:
-        """Récupère le prix actuel + variation 24h via Binance ticker."""
-        symbol = SYMBOLS.get(ticker)
-        if not symbol:
-            log.error(f"Symbole inconnu : {ticker}")
+        cg_id = COINGECKO_IDS.get(ticker)
+        if not cg_id:
+            log.error(f"ID CoinGecko inconnu : {ticker}")
             return None
 
         try:
-            r = requests.get(f"{BINANCE_BASE}/ticker/24hr", params={"symbol": symbol}, timeout=10)
+            r = requests.get(f"{COINGECKO_BASE}/coins/{cg_id}", params={
+                "localization": "false",
+                "tickers":      "false",
+                "community_data": "false",
+                "developer_data": "false",
+            }, timeout=15)
             r.raise_for_status()
             d = r.json()
 
-            close      = round(float(d["lastPrice"]), 6)
-            open_      = round(float(d["openPrice"]), 6)
-            high       = round(float(d["highPrice"]), 6)
-            low        = round(float(d["lowPrice"]), 6)
-            volume     = round(float(d["volume"]), 4)
-            change_pct = round(float(d["priceChangePercent"]), 4)
+            md = d["market_data"]
+            close      = float(md["current_price"]["usd"])
+            open_24h   = float(md["price_change_24h"]) + close  # approximation open
+            high       = float(md["high_24h"]["usd"])
+            low        = float(md["low_24h"]["usd"])
+            volume     = float(md["total_volume"]["usd"])
+            change_pct = float(md["price_change_percentage_24h"])
 
             return {
-                "open":       open_,
-                "high":       high,
-                "low":        low,
-                "close":      close,
-                "volume":     volume,
-                "change_pct": change_pct,
+                "open":       round(open_24h, 6),
+                "high":       round(high, 6),
+                "low":        round(low, 6),
+                "close":      round(close, 6),
+                "volume":     round(volume, 2),
+                "change_pct": round(change_pct, 4),
             }
 
         except Exception as e:
@@ -59,33 +65,36 @@ class PriceCollector:
             return None
 
     def fetch_history(self, ticker: str, days: int = 60) -> pd.DataFrame | None:
-        """Récupère l'historique journalier pour calculer les indicateurs."""
-        symbol = SYMBOLS.get(ticker)
-        if not symbol:
+        cg_id = COINGECKO_IDS.get(ticker)
+        if not cg_id:
             return None
 
         try:
-            r = requests.get(f"{BINANCE_BASE}/klines", params={
-                "symbol":   symbol,
-                "interval": "1d",
-                "limit":    days,
+            r = requests.get(f"{COINGECKO_BASE}/coins/{cg_id}/market_chart", params={
+                "vs_currency": "usd",
+                "days":        days,
+                "interval":    "daily",
             }, timeout=15)
             r.raise_for_status()
-            klines = r.json()
+            data = r.json()
+
+            prices  = data.get("prices", [])
+            volumes = data.get("total_volumes", [])
 
             rows = []
-            for k in klines:
+            for i, (ts, price) in enumerate(prices):
+                vol = volumes[i][1] if i < len(volumes) else 0
                 rows.append({
-                    "Date":   datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc),
-                    "Open":   float(k[1]),
-                    "High":   float(k[2]),
-                    "Low":    float(k[3]),
-                    "Close":  float(k[4]),
-                    "Volume": float(k[5]),
+                    "Date":   datetime.fromtimestamp(ts / 1000, tz=timezone.utc),
+                    "Open":   price,
+                    "High":   price * 1.005,  # approximation
+                    "Low":    price * 0.995,
+                    "Close":  price,
+                    "Volume": vol,
                 })
 
             df = pd.DataFrame(rows).set_index("Date")
-            return df
+            return df if len(df) >= 26 else None
 
         except Exception as e:
             log.error(f"fetch_history({ticker}): {e}")
