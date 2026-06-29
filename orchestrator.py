@@ -1,9 +1,5 @@
 """
 LCDL — Orchestrateur des agents IA
-Tourne après le Data Collector (GitHub Actions séparé ou enchaîné)
-
-Pipeline par ticker :
-  AgentAnalyse → AgentNews → AgentDecision → AgentRisque → Execution simulation
 """
 
 import os
@@ -26,37 +22,41 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 TICKERS      = ["AAPL", "TSLA", "MSFT", "GOOGL", "NVDA"]
 
+EMPTY_INDICATORS = {
+    "rsi": None, "macd": None, "macd_signal": None,
+    "sma_20": None, "sma_50": None, "trend": "neutral"
+}
 
 # ── Helpers Supabase ──────────────────────────────────────────────────────────
 
-def get_latest_price(sb: Client, ticker: str) -> dict | None:
+def get_latest_price(sb, ticker):
     res = sb.table("prices").select("*").eq("ticker", ticker)\
             .order("fetched_at", desc=True).limit(1).execute()
     return res.data[0] if res.data else None
 
-def get_indicators(sb: Client, ticker: str) -> dict | None:
+def get_indicators(sb, ticker):
     res = sb.table("indicators").select("*").eq("ticker", ticker).execute()
     return res.data[0] if res.data else None
 
-def get_recent_news(sb: Client, ticker: str, limit: int = 10) -> list[dict]:
+def get_recent_news(sb, ticker, limit=10):
     res = sb.table("news").select("*")\
             .eq("ticker", ticker)\
             .order("fetched_at", desc=True).limit(limit).execute()
     return res.data or []
 
-def get_portfolio(sb: Client) -> dict | None:
+def get_portfolio(sb):
     res = sb.table("portfolio").select("*").order("id").limit(1).execute()
     return res.data[0] if res.data else None
 
-def get_position(sb: Client, ticker: str) -> dict | None:
+def get_position(sb, ticker):
     res = sb.table("positions").select("*").eq("ticker", ticker).execute()
     return res.data[0] if res.data else None
 
-def get_all_positions(sb: Client) -> list[dict]:
+def get_all_positions(sb):
     res = sb.table("positions").select("*").execute()
     return res.data or []
 
-def log_agent(sb: Client, agent_name: str, ticker: str, input_data: dict, output_data: dict, duration_ms: int):
+def log_agent(sb, agent_name, ticker, input_data, output_data, duration_ms):
     sb.table("agent_logs").insert({
         "agent_name":  agent_name,
         "ticker":      ticker,
@@ -66,12 +66,9 @@ def log_agent(sb: Client, agent_name: str, ticker: str, input_data: dict, output
         "created_at":  datetime.now(timezone.utc).isoformat(),
     }).execute()
 
-
 # ── Simulation du trade ───────────────────────────────────────────────────────
 
-def execute_trade(sb: Client, ticker: str, action: str, decision: dict, risque: dict, price: float, portfolio: dict):
-    """Simule l'exécution d'un trade : met à jour portfolio, positions, trades."""
-
+def execute_trade(sb, ticker, action, decision, risque, price, portfolio):
     if action == "HOLD":
         log.info(f"{ticker}: HOLD — aucune action")
         return
@@ -79,6 +76,7 @@ def execute_trade(sb: Client, ticker: str, action: str, decision: dict, risque: 
     capital_dispo = float(portfolio["capital_usdt"])
     amount_pct    = float(risque["adjusted_amount_pct"]) / 100
     amount_usdt   = round(capital_dispo * amount_pct, 2)
+    quantity      = 0
 
     if action == "BUY":
         if amount_usdt < 10:
@@ -86,13 +84,11 @@ def execute_trade(sb: Client, ticker: str, action: str, decision: dict, risque: 
             return
 
         quantity = round(amount_usdt / price, 6)
-
-        # Insérer ou mettre à jour la position
         existing = get_position(sb, ticker)
+
         if existing:
-            # Moyenne d'achat
-            total_qty   = float(existing["quantity"]) + quantity
-            avg_price   = round(
+            total_qty = float(existing["quantity"]) + quantity
+            avg_price = round(
                 (float(existing["quantity"]) * float(existing["avg_price"]) + amount_usdt) / total_qty, 4
             )
             sb.table("positions").update({
@@ -113,7 +109,6 @@ def execute_trade(sb: Client, ticker: str, action: str, decision: dict, risque: 
                 "updated_at":    datetime.now(timezone.utc).isoformat(),
             }).execute()
 
-        # Déduire du capital
         new_capital = round(capital_dispo - amount_usdt, 2)
         sb.table("portfolio").update({
             "capital_usdt": new_capital,
@@ -128,28 +123,25 @@ def execute_trade(sb: Client, ticker: str, action: str, decision: dict, risque: 
             log.warning(f"{ticker}: SELL demandé mais aucune position ouverte")
             return
 
-        quantity    = float(position["quantity"])
-        sell_value  = round(quantity * price, 2)
-        pnl         = round(sell_value - (quantity * float(position["avg_price"])), 2)
+        quantity   = float(position["quantity"])
+        sell_value = round(quantity * price, 2)
+        pnl        = round(sell_value - (quantity * float(position["avg_price"])), 2)
+        amount_usdt = sell_value
 
-        # Supprimer la position
         sb.table("positions").delete().eq("ticker", ticker).execute()
 
-        # Recréditer le capital
         new_capital = round(capital_dispo + sell_value, 2)
         sb.table("portfolio").update({
             "capital_usdt": new_capital,
             "updated_at":   datetime.now(timezone.utc).isoformat(),
         }).eq("id", portfolio["id"]).execute()
 
-        amount_usdt = sell_value
         log.info(f"{ticker}: SELL {quantity} actions à {price}$ → P&L {pnl:+.2f}$")
 
-    # Enregistrer le trade
     sb.table("trades").insert({
         "ticker":         ticker,
         "action":         action,
-        "quantity":       quantity if action == "BUY" else float(get_position(sb, ticker)["quantity"]) if action == "SELL" else 0,
+        "quantity":       quantity,
         "price":          price,
         "amount_usdt":    amount_usdt,
         "confidence":     decision.get("confidence"),
@@ -158,7 +150,6 @@ def execute_trade(sb: Client, ticker: str, action: str, decision: dict, risque: 
         "trend_at_trade": decision.get("horizon"),
         "executed_at":    datetime.now(timezone.utc).isoformat(),
     }).execute()
-
 
 # ── Pipeline principal ────────────────────────────────────────────────────────
 
@@ -170,11 +161,11 @@ def run():
     agent_decision = AgentDecision()
     agent_risque   = AgentRisque()
 
-    portfolio  = get_portfolio(sb)
-    positions  = get_all_positions(sb)
+    portfolio = get_portfolio(sb)
+    positions = get_all_positions(sb)
 
     if not portfolio:
-        log.error("Aucun portefeuille trouvé en base — exécute le SQL d'init Supabase")
+        log.error("Aucun portefeuille trouvé en base")
         return
 
     log.info(f"Portefeuille : {portfolio['capital_usdt']}$ dispo / {portfolio['total_value']}$ total")
@@ -188,9 +179,14 @@ def run():
         news_list  = get_recent_news(sb, ticker)
         position   = get_position(sb, ticker)
 
-        if not price_data or not indicators:
-            log.warning(f"{ticker}: données manquantes, on passe")
+        if not price_data:
+            log.warning(f"{ticker}: prix manquant, on passe")
             continue
+
+        # Indicateurs absents → valeurs neutres (Alpha Vantage gratuit bloque l'historique)
+        if not indicators:
+            log.warning(f"{ticker}: indicateurs absents, valeurs neutres utilisées")
+            indicators = EMPTY_INDICATORS
 
         # 2. Agent Analyse Technique
         analyse = agent_analyse.run(ticker, price_data, indicators)
@@ -229,11 +225,10 @@ def run():
         # 6. Exécuter le trade si approuvé
         if risque["approved"] and decision["action"] != "HOLD":
             execute_trade(sb, ticker, decision["action"], decision, risque, float(price_data["close"]), portfolio)
-            # Recharger le portfolio après chaque trade
             portfolio = get_portfolio(sb)
             positions = get_all_positions(sb)
 
-        time.sleep(2)  # Pause entre chaque ticker pour les rate limits Groq
+        time.sleep(2)
 
     log.info("\nOrchestration terminée ✓")
 
