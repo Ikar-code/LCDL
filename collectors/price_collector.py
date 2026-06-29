@@ -1,9 +1,8 @@
 """
-Price Collector — Alpha Vantage (gratuit, 25 req/jour)
-Clé API gratuite sur : https://www.alphavantage.co/support/#api-key
+Price Collector — Binance API publique (sans clé API)
+Récupère les prix crypto en temps réel + historique pour les indicateurs
 """
 
-import os
 import logging
 import requests
 import pandas as pd
@@ -11,8 +10,16 @@ from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
-AV_BASE = "https://www.alphavantage.co/query"
-AV_KEY  = os.environ.get("ALPHAVANTAGE_KEY", "demo")
+BINANCE_BASE = "https://api.binance.com/api/v3"
+
+# Paires crypto à suivre (USDT)
+SYMBOLS = {
+    "BTC":  "BTCUSDT",
+    "ETH":  "ETHUSDT",
+    "SOL":  "SOLUSDT",
+    "BNB":  "BNBUSDT",
+    "XRP":  "XRPUSDT",
+}
 
 
 class PriceCollector:
@@ -20,27 +27,23 @@ class PriceCollector:
         self.tickers = tickers
 
     def fetch_latest(self, ticker: str) -> dict | None:
-        """Récupère le dernier prix via GLOBAL_QUOTE."""
+        """Récupère le prix actuel + variation 24h via Binance ticker."""
+        symbol = SYMBOLS.get(ticker)
+        if not symbol:
+            log.error(f"Symbole inconnu : {ticker}")
+            return None
+
         try:
-            r = requests.get(AV_BASE, params={
-                "function": "GLOBAL_QUOTE",
-                "symbol":   ticker,
-                "apikey":   AV_KEY,
-            }, timeout=10)
+            r = requests.get(f"{BINANCE_BASE}/ticker/24hr", params={"symbol": symbol}, timeout=10)
             r.raise_for_status()
-            data  = r.json()
-            quote = data.get("Global Quote", {})
+            d = r.json()
 
-            if not quote or not quote.get("05. price"):
-                log.warning(f"{ticker}: réponse vide Alpha Vantage")
-                return None
-
-            close      = round(float(quote["05. price"]), 4)
-            open_      = round(float(quote["02. open"]), 4)
-            high       = round(float(quote["03. high"]), 4)
-            low        = round(float(quote["04. low"]), 4)
-            volume     = int(quote["06. volume"])
-            change_pct = round(float(quote["10. change percent"].replace("%", "")), 4)
+            close      = round(float(d["lastPrice"]), 6)
+            open_      = round(float(d["openPrice"]), 6)
+            high       = round(float(d["highPrice"]), 6)
+            low        = round(float(d["lowPrice"]), 6)
+            volume     = round(float(d["volume"]), 4)
+            change_pct = round(float(d["priceChangePercent"]), 4)
 
             return {
                 "open":       open_,
@@ -56,31 +59,29 @@ class PriceCollector:
             return None
 
     def fetch_history(self, ticker: str, days: int = 60) -> pd.DataFrame | None:
-        """Récupère l'historique journalier pour les indicateurs."""
+        """Récupère l'historique journalier pour calculer les indicateurs."""
+        symbol = SYMBOLS.get(ticker)
+        if not symbol:
+            return None
+
         try:
-            r = requests.get(AV_BASE, params={
-                "function":   "TIME_SERIES_DAILY",
-                "symbol":     ticker,
-                "outputsize": "compact",  # 100 derniers jours
-                "apikey":     AV_KEY,
+            r = requests.get(f"{BINANCE_BASE}/klines", params={
+                "symbol":   symbol,
+                "interval": "1d",
+                "limit":    days,
             }, timeout=15)
             r.raise_for_status()
-            data   = r.json()
-            series = data.get("Time Series (Daily)", {})
-
-            if not series:
-                log.warning(f"{ticker}: historique vide")
-                return None
+            klines = r.json()
 
             rows = []
-            for date_str, vals in sorted(series.items())[-days:]:
+            for k in klines:
                 rows.append({
-                    "Date":   datetime.strptime(date_str, "%Y-%m-%d"),
-                    "Open":   float(vals["1. open"]),
-                    "High":   float(vals["2. high"]),
-                    "Low":    float(vals["3. low"]),
-                    "Close":  float(vals["4. close"]),
-                    "Volume": int(vals["5. volume"]),
+                    "Date":   datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc),
+                    "Open":   float(k[1]),
+                    "High":   float(k[2]),
+                    "Low":    float(k[3]),
+                    "Close":  float(k[4]),
+                    "Volume": float(k[5]),
                 })
 
             df = pd.DataFrame(rows).set_index("Date")
