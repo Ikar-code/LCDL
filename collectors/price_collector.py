@@ -56,7 +56,7 @@ class PriceCollector:
                 "high":       round(high, 6),
                 "low":        round(low, 6),
                 "close":      round(close, 6),
-                "volume":     round(volume, 2),
+                "volume":     int(volume),
                 "change_pct": round(change_pct, 4),
             }
 
