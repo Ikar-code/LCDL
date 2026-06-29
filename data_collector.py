@@ -81,7 +81,7 @@ def run():
     try:
         articles = news_col.fetch_all()
         if articles:
-            supabase.table("news").insert(articles).execute()
+            supabase.table("news").upsert(articles, on_conflict="hash").execute()
             log.info(f"News: {len(articles)} articles insérés")
     except Exception as e:
         log.error(f"News — {e}")
