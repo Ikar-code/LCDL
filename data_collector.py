@@ -71,7 +71,7 @@ def run():
             log.error(f"{ticker}: {e}")
 
         # CoinGecko free tier : max ~10 req/min, on attend 8s entre chaque ticker
-        time.sleep(8)
+        time.sleep(15)
 
     # News — déduplique dans le batch avant d'envoyer
     try:
