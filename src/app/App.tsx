@@ -600,7 +600,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-[10px] font-mono text-white/20">
-              {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
+              {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })} · {lastUpdate ? lastUpdate.toLocaleTimeString("fr-FR") : "—"}
             </span>
           </div>
         </header>
