@@ -1,27 +1,25 @@
-// src/App.tsx — LCDL connecté à Supabase
-// Remplace les mock data par les données réelles du hook useMarketData
+// src/App.tsx — LCDL connecté à Supabase + prix live CoinGecko
 
-import { useLivePrices } from "./components/ui/useLivePrices";
 import { useState } from "react";
 import {
   AreaChart, Area, LineChart, Line,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import {
-  LayoutDashboard, Brain, TrendingUp, BarChart2, Shield, Bot,
-  Bell, Settings, ChevronRight, ArrowUpRight, Activity,
-  Clock, Database, Target, Eye, RefreshCw,
+  LayoutDashboard, Brain, TrendingUp, Shield, Bot,
+  ChevronRight, Activity, Database, Target, Eye, RefreshCw,
 } from "lucide-react";
 import { useMarketData } from "./components/ui/useMarketData";
+import { useLivePrices } from "./components/ui/useLivePrices";
 
-// ─── Palette ──────────────────────────────────────────────────────────────────
 const VIOLET = "#7c5df2";
 const GOLD   = "#c9a227";
 const GREEN  = "#22c55e";
 const RED    = "#f43f5e";
 const CYAN   = "#22d3ee";
 
-// ─── Primitives (identiques à la maquette) ───────────────────────────────────
+// ─── Primitives ───────────────────────────────────────────────────────────────
+
 function Chip({ children, color }: { children: React.ReactNode; color: string }) {
   return (
     <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-mono font-semibold tracking-wider uppercase"
@@ -80,16 +78,15 @@ function EmptyState({ message }: { message: string }) {
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
+
 function Dashboard() {
   const { portfolio, positions, trades, portfolioHistory, loading } = useMarketData();
-  const { prices, lastUpdate: pricesUpdate } = useLivePrices();
+  const { prices } = useLivePrices();
 
   const totalPnl = positions.reduce((acc, p) => acc + (p.pnl_value ?? 0), 0);
-  const todayTrades = trades.filter(t => {
-    const d = new Date(t.executed_at);
-    const now = new Date();
-    return d.toDateString() === now.toDateString();
-  });
+  const todayTrades = trades.filter(t =>
+    new Date(t.executed_at).toDateString() === new Date().toDateString()
+  );
 
   if (loading) return <div className="text-[11px] font-mono text-white/20 p-8">Chargement des données…</div>;
 
@@ -97,11 +94,14 @@ function Dashboard() {
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Capital total" value={`$${(portfolio?.total_value ?? 0).toLocaleString("fr-FR")}`} sub="Portefeuille virtuel" />
-        <StatCard label="Performance globale" value={`${(portfolio?.performance ?? 0) >= 0 ? "+" : ""}${(portfolio?.performance ?? 0).toFixed(2)}%`}
+        <StatCard label="Performance globale"
+          value={`${(portfolio?.performance ?? 0) >= 0 ? "+" : ""}${(portfolio?.performance ?? 0).toFixed(2)}%`}
           sub={`${totalPnl >= 0 ? "↑" : "↓"} ${totalPnl >= 0 ? "+" : ""}$${totalPnl.toFixed(2)}`}
           color={(portfolio?.performance ?? 0) >= 0 ? GREEN : RED} />
-        <StatCard label="Positions ouvertes" value={`${positions.length}`} sub={`${positions.length} actif${positions.length > 1 ? "s" : ""}`} />
-        <StatCard label="Trades aujourd'hui" value={`${todayTrades.length}`} sub="Décisions IA exécutées" color={GOLD} />
+        <StatCard label="Positions ouvertes" value={`${positions.length}`}
+          sub={`${positions.length} actif${positions.length > 1 ? "s" : ""}`} />
+        <StatCard label="Trades aujourd'hui" value={`${todayTrades.length}`}
+          sub="Décisions IA exécutées" color={GOLD} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -112,7 +112,8 @@ function Dashboard() {
               <SectionTitle>Évolution du portefeuille</SectionTitle>
               <div className="text-[11px] text-white/30">Basé sur les trades IA</div>
             </div>
-            <span className="text-sm font-mono font-bold" style={{ color: (portfolio?.performance ?? 0) >= 0 ? GREEN : RED }}>
+            <span className="text-sm font-mono font-bold"
+              style={{ color: (portfolio?.performance ?? 0) >= 0 ? GREEN : RED }}>
               {(portfolio?.performance ?? 0) >= 0 ? "+" : ""}{(portfolio?.performance ?? 0).toFixed(2)}%
             </span>
           </div>
@@ -138,12 +139,12 @@ function Dashboard() {
           )}
         </div>
 
-        {/* Prix en direct */}
+        {/* Prix en direct CoinGecko */}
         <div className="bg-[#0d0f1a] border border-white/5 rounded-sm p-4">
           <SectionTitle>Prix en direct</SectionTitle>
           <div className="flex flex-col divide-y divide-white/[0.04]">
             {prices.length === 0 ? (
-              <EmptyState message="Aucun prix collecté" />
+              <EmptyState message="Chargement des prix…" />
             ) : (
               prices.map((p) => (
                 <div key={p.ticker} className="flex items-center justify-between py-2.5">
@@ -181,9 +182,9 @@ function Dashboard() {
             <tbody>
               {positions.map((pos) => {
                 const livePrice = prices.find(p => p.ticker === pos.ticker);
-                const currentPrice = livePrice?.close ?? pos.current_price ?? pos.avg_price;
-                const pnlValue = (currentPrice - pos.avg_price) * pos.quantity;
-                const pnlPct   = ((currentPrice - pos.avg_price) / pos.avg_price) * 100;
+                const currentPrice = livePrice?.close ?? Number(pos.current_price) ?? Number(pos.avg_price);
+                const pnlValue = (currentPrice - Number(pos.avg_price)) * Number(pos.quantity);
+                const pnlPct   = ((currentPrice - Number(pos.avg_price)) / Number(pos.avg_price)) * 100;
                 return (
                   <tr key={pos.ticker} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
                     <td className="px-5 py-3">
@@ -192,11 +193,11 @@ function Dashboard() {
                         <div className="text-xs font-mono font-bold text-white">{pos.ticker}</div>
                       </div>
                     </td>
-                    <td className="px-5 py-3 text-right text-[11px] font-mono text-white/50">{pos.quantity}</td>
+                    <td className="px-5 py-3 text-right text-[11px] font-mono text-white/50">{Number(pos.quantity).toFixed(6)}</td>
                     <td className="px-5 py-3 text-right text-[11px] font-mono text-white/50">${Number(pos.avg_price).toFixed(2)}</td>
                     <td className="px-5 py-3 text-right text-[11px] font-mono text-white">${currentPrice.toFixed(2)}</td>
                     <td className="px-5 py-3 text-right text-[11px] font-mono" style={{ color: pnlValue >= 0 ? GREEN : RED }}>
-                      {pnlValue >= 0 ? "+" : ""}${pnlValue.toFixed(2)}
+                      {pnlValue >= 0 ? "+" : ""}${pnlValue.toFixed(4)}
                     </td>
                     <td className="px-5 py-3 text-right">
                       <span className="text-[10px] font-mono px-2 py-0.5 rounded-sm"
@@ -216,10 +217,11 @@ function Dashboard() {
 }
 
 // ─── Décisions IA ─────────────────────────────────────────────────────────────
-function AIDecisions() {
-  const { agentLogs, prices, news, indicators, loading } = useMarketData();
 
-  // Extraire les dernières décisions par ticker depuis agent_logs
+function AIDecisions() {
+  const { agentLogs, news, indicators, loading } = useMarketData();
+  const { prices } = useLivePrices();
+
   const decisions = Object.values(
     agentLogs
       .filter(l => l.agent_name === "decision" && l.ticker)
@@ -236,25 +238,22 @@ function AIDecisions() {
   if (decisions.length === 0) {
     return (
       <div className="bg-[#0d0f1a] border border-white/5 rounded-sm p-16">
-        <EmptyState message="Aucune décision IA encore — lancez python orchestrator.py" />
+        <EmptyState message="Aucune décision IA encore — lancez l'orchestrateur" />
       </div>
     );
   }
 
-  const selectedLog = decisions.find(d => d.ticker === selected) ?? decisions[0];
-  const output = selectedLog?.output_data as Record<string, unknown> ?? {};
-  const price  = prices.find(p => p.ticker === selectedLog?.ticker);
-  const indic  = indicators.find(i => i.ticker === selectedLog?.ticker);
+  const selectedLog   = decisions.find(d => d.ticker === selected) ?? decisions[0];
+  const output        = selectedLog?.output_data as Record<string, unknown> ?? {};
+  const price         = prices.find(p => p.ticker === selectedLog?.ticker);
+  const indic         = indicators.find(i => i.ticker === selectedLog?.ticker);
   const newsForTicker = news.filter(n => n.ticker === selectedLog?.ticker).slice(0, 5);
-
-  // Analyse log pour ce ticker
-  const analyseLog = agentLogs.find(l => l.agent_name === "analyse" && l.ticker === selectedLog?.ticker);
+  const analyseLog    = agentLogs.find(l => l.agent_name === "analyse" && l.ticker === selectedLog?.ticker);
   const analyseOutput = analyseLog?.output_data as Record<string, unknown> ?? {};
 
   return (
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-        {/* Liste */}
         <div className="lg:col-span-2 flex flex-col gap-3">
           <SectionTitle>Dernières décisions · {decisions.length} actifs</SectionTitle>
           {decisions.map((d) => {
@@ -280,7 +279,6 @@ function AIDecisions() {
           })}
         </div>
 
-        {/* Détail */}
         <div className="lg:col-span-3 flex flex-col gap-4">
           <div className="bg-[#0d0f1a] border border-white/5 rounded-sm p-5">
             <div className="flex items-start justify-between mb-4">
@@ -300,22 +298,18 @@ function AIDecisions() {
                 </div>
               </div>
             </div>
-
             <div className="flex items-center gap-4 mb-4">
               <DecisionBadge decision={String(output.action ?? "HOLD")} />
             </div>
-
             <div className="mb-4">
               <ConfBar value={Number(output.confidence ?? 0)} />
             </div>
-
             <div className="p-4 bg-white/[0.03] rounded-sm border border-white/[0.05]">
               <div className="text-[9px] font-mono text-white/25 uppercase tracking-widest mb-2">Raisonnement IA</div>
               <p className="text-[12px] text-white/60 leading-relaxed">{String(output.reason ?? "—")}</p>
             </div>
           </div>
 
-          {/* Indicateurs techniques */}
           {indic && (
             <div className="bg-[#0d0f1a] border border-white/5 rounded-sm p-5">
               <SectionTitle>Indicateurs techniques</SectionTitle>
@@ -326,7 +320,7 @@ function AIDecisions() {
                   { label: "SMA 20", value: indic.sma_20 ? `$${indic.sma_20.toFixed(2)}` : "—", color: GOLD },
                   { label: "SMA 50", value: indic.sma_50 ? `$${indic.sma_50.toFixed(2)}` : "—", color: GOLD },
                   { label: "Tendance", value: indic.trend, color: indic.trend === "bullish" ? GREEN : indic.trend === "bearish" ? RED : GOLD },
-                  { label: "Sentiment news", value: String((analyseOutput.trend as string) ?? "—"), color: VIOLET },
+                  { label: "Sentiment", value: String(analyseOutput.trend ?? "—"), color: VIOLET },
                 ].map((t) => (
                   <div key={t.label} className="flex items-center justify-between p-3 bg-white/[0.02] rounded-sm border border-white/[0.04]">
                     <div className="text-[9px] font-mono text-white/25">{t.label}</div>
@@ -337,7 +331,6 @@ function AIDecisions() {
             </div>
           )}
 
-          {/* News liées */}
           {newsForTicker.length > 0 && (
             <div className="bg-[#0d0f1a] border border-white/5 rounded-sm p-5">
               <SectionTitle>Actualités récentes</SectionTitle>
@@ -364,28 +357,23 @@ function AIDecisions() {
 }
 
 // ─── Simulation ───────────────────────────────────────────────────────────────
+
 function Simulation() {
   const { portfolio, trades, portfolioHistory, loading } = useMarketData();
-
-  const winning = trades.filter(t => {
-    // Trade gagnant = SELL avec amount > avg_price * qty (approx)
-    return t.action === "SELL";
-  }).length;
 
   if (loading) return <div className="text-[11px] font-mono text-white/20 p-8">Chargement…</div>;
 
   return (
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="Capital virtuel" value={`$${(portfolio?.capital_usdt ?? 0).toLocaleString()}`} sub="Disponible" />
-        <StatCard label="Valeur totale" value={`$${(portfolio?.total_value ?? 0).toLocaleString()}`}
+        <StatCard label="Capital disponible" value={`$${Number(portfolio?.capital_usdt ?? 0).toFixed(2)}`} sub="Non investi" />
+        <StatCard label="Valeur totale" value={`$${Number(portfolio?.total_value ?? 0).toFixed(2)}`}
           sub={`${(portfolio?.performance ?? 0) >= 0 ? "+" : ""}${(portfolio?.performance ?? 0).toFixed(2)}% depuis début`}
           color={(portfolio?.performance ?? 0) >= 0 ? GREEN : RED} />
         <StatCard label="Opérations" value={`${trades.length}`} sub="Décisions exécutées" />
-        <StatCard label="Ventes" value={`${winning}`} sub="Positions fermées" color={GOLD} />
+        <StatCard label="Ventes" value={`${trades.filter(t => t.action === "SELL").length}`} sub="Positions fermées" color={GOLD} />
       </div>
 
-      {/* Graphique */}
       <div className="bg-[#0d0f1a] border border-white/5 rounded-sm p-5">
         <SectionTitle>Évolution du capital</SectionTitle>
         {portfolioHistory.length > 1 ? (
@@ -394,7 +382,7 @@ function Simulation() {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
               <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false}
-                tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                tickFormatter={(v) => `$${v.toFixed(0)}`} />
               <Tooltip />
               <Line type="monotone" dataKey="value" stroke={VIOLET} strokeWidth={2} dot={false} />
             </LineChart>
@@ -404,14 +392,13 @@ function Simulation() {
         )}
       </div>
 
-      {/* Journal des trades */}
       <div className="bg-[#0d0f1a] border border-white/5 rounded-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-white/5 flex items-center justify-between">
           <SectionTitle>Journal des opérations IA</SectionTitle>
           <span className="text-[9px] font-mono text-white/20">{trades.length} opérations</span>
         </div>
         {trades.length === 0 ? (
-          <EmptyState message="Aucun trade encore — lancez python orchestrator.py" />
+          <EmptyState message="Aucun trade encore — lancez l'orchestrateur" />
         ) : (
           <table className="w-full">
             <thead>
@@ -425,7 +412,7 @@ function Simulation() {
               {trades.map((t) => (
                 <tr key={t.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
                   <td className="px-5 py-3 text-[11px] font-mono text-white/35">
-                    {new Date(t.executed_at).toLocaleDateString("fr-FR")}
+                    {new Date(t.executed_at).toLocaleDateString("fr-FR")} {new Date(t.executed_at).toLocaleTimeString("fr-FR")}
                   </td>
                   <td className="px-5 py-3 text-[11px] font-mono font-bold text-white">{t.ticker}</td>
                   <td className="px-5 py-3">
@@ -434,7 +421,7 @@ function Simulation() {
                       {t.action === "BUY" ? "ACHAT" : "VENTE"}
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-right text-[11px] font-mono text-white/50">{Number(t.quantity).toFixed(4)}</td>
+                  <td className="px-5 py-3 text-right text-[11px] font-mono text-white/50">{Number(t.quantity).toFixed(6)}</td>
                   <td className="px-5 py-3 text-right text-[11px] font-mono text-white/50">${Number(t.price).toFixed(2)}</td>
                   <td className="px-5 py-3 text-right text-[11px] font-mono text-white">${Number(t.amount_usdt).toFixed(2)}</td>
                   <td className="px-5 py-3 text-right">
@@ -451,6 +438,7 @@ function Simulation() {
 }
 
 // ─── Agents IA ────────────────────────────────────────────────────────────────
+
 function Agents() {
   const { agentLogs, loading } = useMarketData();
 
@@ -467,7 +455,7 @@ function Agents() {
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {agentDefs.map((agent) => {
-          const logs = agentLogs.filter(l => l.agent_name === agent.id).slice(0, 5);
+          const logs    = agentLogs.filter(l => l.agent_name === agent.id).slice(0, 5);
           const lastRun = logs[0];
           return (
             <div key={agent.id} className="bg-[#0d0f1a] border border-white/5 rounded-sm p-5">
@@ -480,7 +468,8 @@ function Agents() {
                   <div>
                     <div className="text-sm font-semibold text-white" style={{ fontFamily: "'Outfit', sans-serif" }}>{agent.name}</div>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: logs.length > 0 ? GREEN : "rgba(255,255,255,0.15)" }} />
+                      <div className="w-1.5 h-1.5 rounded-full"
+                        style={{ background: logs.length > 0 ? GREEN : "rgba(255,255,255,0.15)" }} />
                       <span className="text-[10px] font-mono" style={{ color: logs.length > 0 ? GREEN : "rgba(255,255,255,0.3)" }}>
                         {logs.length > 0 ? `${logs.length} exécution${logs.length > 1 ? "s" : ""}` : "Inactif"}
                       </span>
@@ -506,11 +495,13 @@ function Agents() {
                           {new Date(log.created_at).toLocaleTimeString("fr-FR")}
                         </span>
                         <span className="text-[10px] font-mono text-white/40">
-                          {log.ticker} — {String((log.output_data as Record<string, unknown>).action
+                          {log.ticker} — {String(
+                            (log.output_data as Record<string, unknown>).action
                             ?? (log.output_data as Record<string, unknown>).trend
                             ?? (log.output_data as Record<string, unknown>).sentiment
                             ?? (log.output_data as Record<string, unknown>).approved
-                            ?? "OK")} ({log.duration_ms}ms)
+                            ?? "OK"
+                          )} ({log.duration_ms}ms)
                         </span>
                       </div>
                     ))}
@@ -526,18 +517,20 @@ function Agents() {
 }
 
 // ─── App Shell ────────────────────────────────────────────────────────────────
+
 const navItems = [
-  { id: "dashboard",  label: "Dashboard",   icon: LayoutDashboard },
+  { id: "dashboard",  label: "Dashboard",    icon: LayoutDashboard },
   { id: "decisions",  label: "Décisions IA", icon: Brain },
   { id: "simulation", label: "Simulation",   icon: TrendingUp },
   { id: "agents",     label: "Agents IA",    icon: Bot },
 ] as const;
 
-type PageId = (typeof navItems)[number]["id"] | "settings";
+type PageId = (typeof navItems)[number]["id"];
 
 export default function App() {
   const [active, setActive] = useState<PageId>("dashboard");
-  const { lastUpdate, refresh, loading, prices } = useMarketData();
+  const { lastUpdate, refresh, loading } = useMarketData();
+  const { prices: livePrices, lastUpdate: livePricesUpdate } = useLivePrices();
 
   return (
     <div className="flex h-screen overflow-hidden"
@@ -580,7 +573,7 @@ export default function App() {
           <div className="flex items-center gap-2 px-2 py-1">
             <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: GREEN, boxShadow: `0 0 5px ${GREEN}` }} />
             <span className="text-[9px] font-mono text-white/25">
-              {lastUpdate ? `Màj ${lastUpdate.toLocaleTimeString("fr-FR")}` : "Connexion…"}
+              {lastUpdate ? `BDD ${lastUpdate.toLocaleTimeString("fr-FR")}` : "Connexion…"}
             </span>
           </div>
           <button onClick={refresh}
@@ -602,9 +595,9 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-[10px] font-mono text-white/20">
-              {prices.length > 0
-                ? `Données du ${new Date(prices[0].fetched_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })} à ${new Date(prices[0].fetched_at).toLocaleTimeString("fr-FR")}`
-                : "—"}
+              {livePricesUpdate
+                ? `Prix live · ${livePricesUpdate.toLocaleTimeString("fr-FR")}`
+                : "Chargement prix…"}
             </span>
           </div>
         </header>
