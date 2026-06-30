@@ -1,6 +1,7 @@
 // src/App.tsx — LCDL connecté à Supabase
 // Remplace les mock data par les données réelles du hook useMarketData
 
+import { useLivePrices } from "./components/ui/useLivePrices";
 import { useState } from "react";
 import {
   AreaChart, Area, LineChart, Line,
@@ -80,7 +81,8 @@ function EmptyState({ message }: { message: string }) {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 function Dashboard() {
-  const { portfolio, positions, prices, trades, portfolioHistory, loading } = useMarketData();
+  const { portfolio, positions, trades, portfolioHistory, loading } = useMarketData();
+  const { prices, lastUpdate: pricesUpdate } = useLivePrices();
 
   const totalPnl = positions.reduce((acc, p) => acc + (p.pnl_value ?? 0), 0);
   const todayTrades = trades.filter(t => {
