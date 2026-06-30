@@ -535,7 +535,7 @@ type PageId = (typeof navItems)[number]["id"] | "settings";
 
 export default function App() {
   const [active, setActive] = useState<PageId>("dashboard");
-  const { lastUpdate, refresh, loading } = useMarketData();
+  const { lastUpdate, refresh, loading, prices } = useMarketData();
 
   return (
     <div className="flex h-screen overflow-hidden"
@@ -600,7 +600,9 @@ export default function App() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-[10px] font-mono text-white/20">
-              {new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })} · {lastUpdate ? lastUpdate.toLocaleTimeString("fr-FR") : "—"}
+              {prices.length > 0
+                ? `Données du ${new Date(prices[0].fetched_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })} à ${new Date(prices[0].fetched_at).toLocaleTimeString("fr-FR")}`
+                : "—"}
             </span>
           </div>
         </header>
