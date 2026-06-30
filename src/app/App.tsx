@@ -126,7 +126,7 @@ function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                 <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "rgba(255,255,255,0.25)", fontSize: 9 }} axisLine={false} tickLine={false}
-                  tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  tickFormatter={(v) => `$${v.toFixed(0)}`} />
                 <Tooltip />
                 <Area type="monotone" dataKey="value" stroke={VIOLET} strokeWidth={2} fill="url(#pg)" />
               </AreaChart>
