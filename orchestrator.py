@@ -289,7 +289,8 @@ def run():
         for p in positions
     )
     total_value  = float(portfolio["capital_usdt"]) + total_positions_value
-    performance  = round(((total_value - 10000) / 10000) * 100, 4)
+    CAPITAL_DEPART = 100
+    performance  = round(((total_value - CAPITAL_DEPART) / CAPITAL_DEPART) * 100, 4)
 
     sb.table("portfolio").update({
         "total_value": round(total_value, 2),
