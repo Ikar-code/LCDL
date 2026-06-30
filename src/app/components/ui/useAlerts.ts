@@ -1,3 +1,5 @@
+// Hook — alertes temps réel sur les positions en danger
+
 import { useEffect, useState } from "react";
 import type { Position } from "./useMarketData";
 import type { LivePrice } from "./useLivePrices";
